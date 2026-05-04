@@ -37,19 +37,39 @@ def get_all_tw_stocks_with_names():
 st.sidebar.header("⚙️ 回測參數設定")
 user_ticker = st.sidebar.text_input("股票代號 (如: 2330)", value="2337", max_chars=6)
 initial_capital = st.sidebar.number_input("投入本金 (元)", min_value=10000, max_value=10000000, value=500000, step=10000)
-backtest_days = st.sidebar.slider("回測天數 (日K)", min_value=30, max_value=3650, value=120, step=10)
+backtest_days = st.sidebar.slider("回測天數 (日K)", min_value=30, max_value=3650, value=120, step=5)
 resonance_window = st.sidebar.slider("訊號共振窗口 (天)", min_value=1, max_value=10, value=3)
 
 if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
     with st.spinner('數據計算中...'):
+        # 🌟 完整還原原本 APP 的搜尋邏輯
         stock_dict = get_all_tw_stocks_with_names()
-        ticker_full = next((k for k in stock_dict if k.startswith(user_ticker)), f"{user_ticker}.TW")
-        stock_name = stock_dict.get(ticker_full, user_ticker)
+        filtered_list = {k: v for k, v in stock_dict.items() if k.startswith(user_ticker)}
+        
+        if filtered_list:
+            ticker_full = list(filtered_list.keys())[0]
+            stock_name = filtered_list[ticker_full]
+        else:
+            # 備援搜尋：自動嘗試 .TW 與 .TWO (解決 6510 等櫃買股票問題)
+            ticker_candidates = [f"{user_ticker}.TW", f"{user_ticker}.TWO", user_ticker]
+            ticker_full = None
+            stock_name = user_ticker
+            for candidate in ticker_candidates:
+                try:
+                    test_df = yf.download(candidate, period="1d", progress=False)
+                    if not test_df.empty:
+                        ticker_full = candidate
+                        break
+                except: pass
+            
+            if not ticker_full:
+                st.error(f"找不到符合條件的股票代號：{user_ticker}")
+                st.stop()
 
-        # 下載日K資料
+        # 下載資料
         df = yf.download(ticker_full, period=f"{backtest_days}d", interval="1d", progress=False)
         if df.empty:
-            st.error("無法取得資料。")
+            st.error("無法取得歷史資料。")
             st.stop()
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
 
