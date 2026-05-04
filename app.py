@@ -95,10 +95,13 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
         # 共振判斷
         # df['Buy_Signal'] = (df['Trend_OK']) & (df['J_up_50'].rolling(resonance_window).max() > 0) & (df['MACD_Red'].rolling(resonance_window).max() > 0)
         # df['Sell_Signal'] = (df['J_down_50'].rolling(resonance_window).max() > 0) & (df['MACD_Green'].rolling(resonance_window).max() > 0)
-        df['Buy_Signal'] = (df['Trend_OK']) & \
-                           (df['J_up_50'].rolling(resonance_window).max() > 0) & \
-                           (df['MACD_Red'].rolling(resonance_window).max() > 0)
+        # df['Buy_Signal'] = (df['Trend_OK']) & \
+        #                    (df['J_up_50'].rolling(resonance_window).max() > 0) & \
+        #                    (df['MACD_Red'].rolling(resonance_window).max() > 0)
 
+        df['Buy_Signal'] = (df['J_up_50'].rolling(resonance_window).max() > 0) & \
+                           (df['MACD_Red'].rolling(resonance_window).max() > 0)
+                           
 
         # [賣出條件]：J 線高檔死叉 (改為靈敏)
         # 條件 1: J 跌破 D
