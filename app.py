@@ -37,7 +37,7 @@ def get_all_tw_stocks_with_names():
 st.sidebar.header("⚙️ 回測參數設定")
 user_ticker = st.sidebar.text_input("股票代號 (如: 2330)", value="2337", max_chars=6)
 initial_capital = st.sidebar.number_input("投入本金 (元)", min_value=10000, max_value=10000000, value=500000, step=10000)
-backtest_days = st.sidebar.slider("回測天數 (日K)", min_value=30, max_value=3650, value=730, step=30)
+backtest_days = st.sidebar.slider("回測天數 (日K)", min_value=30, max_value=3650, value=120, step=10)
 resonance_window = st.sidebar.slider("訊號共振窗口 (天)", min_value=1, max_value=10, value=3)
 
 if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
