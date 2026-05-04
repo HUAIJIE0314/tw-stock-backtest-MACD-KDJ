@@ -56,7 +56,7 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
             stock_name = user_ticker
             for candidate in ticker_candidates:
                 try:
-                    test_df = yf.download(candidate, period="1d", interval="60m", progress=False)
+                    test_df = yf.download(candidate, period="1d", progress=False)
                     if not test_df.empty:
                         ticker_full = candidate
                         break
