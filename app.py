@@ -7,13 +7,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 0. 網頁基本設定
+# 0. 網頁基本設定 (維持原視覺風格)
 # ==========================================
 st.set_page_config(page_title="台股日K MJ策略回測", page_icon="📈", layout="wide")
 st.title("📈 台股 MJ 指標 (MACD + KDJ) 日K趨勢策略機器人")
 
 # ==========================================
-# 1. 資料抓取模組 (保留原本強大的搜尋與搜尋備援)
+# 1. 資料抓取模組 (保留快取與 API 備援)
 # ==========================================
 @st.cache_data(ttl=86400)
 def get_all_tw_stocks_with_names():
@@ -25,9 +25,8 @@ def get_all_tw_stocks_with_names():
             code_key = next((k for k in data[0].keys() if k in ['公司代號', '證券代號', '股票代號', 'Code', 'code', 'Symbol']), None)
             name_key = next((k for k in data[0].keys() if k in ['公司簡稱', '證券名稱', '公司名稱', 'Name', 'name', 'CompanyName']), None)
             if not code_key or not name_key: return {}
-            return {f"{str(item.get(code_key, '')).strip()}{suffix}": str(item.get(name_key, '')).strip() for item in data}
+            return {f"{str(item.get(code_key, '')).strip()}{suffix}": str(item.get(name_key, '')).strip() for item in data if len(str(item.get(code_key, '')).strip()) >= 4}
         except: return {}
-
     twse = extract_codes_and_names("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", ".TW")
     tpex = extract_codes_and_names("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O", ".TWO")
     return {**twse, **tpex} if (twse or tpex) else {'2330.TW': '台積電', '2317.TW': '鴻海'}
@@ -36,13 +35,14 @@ def get_all_tw_stocks_with_names():
 # 2. 側邊欄：參數設定
 # ==========================================
 st.sidebar.header("⚙️ 回測參數設定")
-user_ticker = st.sidebar.text_input("股票代號 (如: 6510, 2330)", value="6510", max_chars=6)
-initial_capital = st.sidebar.number_input("投入本金 (元)", min_value=10000, value=500000, step=10000)
-backtest_days = st.sidebar.slider("回測天數 (日K)", min_value=30, max_value=3650, value=730, step=30)
+user_ticker = st.sidebar.text_input("股票代號 (如: 2330)", value="2337", max_chars=6)
+initial_capital = st.sidebar.number_input("投入本金 (元)", min_value=10000, max_value=10000000, value=500000, step=10000)
+backtest_days = st.sidebar.slider("回測天數 (日K)", min_value=30, max_value=3650, value=120, step=5)
 resonance_window = st.sidebar.slider("訊號共振窗口 (天)", min_value=1, max_value=10, value=3)
 
 if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
-    with st.spinner('正在精確分析 MJ 指標數據...'):
+    with st.spinner('數據計算中...'):
+        # 🌟 完整還原原本 APP 的搜尋邏輯
         stock_dict = get_all_tw_stocks_with_names()
         filtered_list = {k: v for k, v in stock_dict.items() if k.startswith(user_ticker)}
         
@@ -50,7 +50,8 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
             ticker_full = list(filtered_list.keys())[0]
             stock_name = filtered_list[ticker_full]
         else:
-            ticker_candidates = [f"{user_ticker}.TWO", f"{user_ticker}.TW", user_ticker]
+            # 備援搜尋：自動嘗試 .TW 與 .TWO (解決 6510 等櫃買股票問題)
+            ticker_candidates = [f"{user_ticker}.TW", f"{user_ticker}.TWO", user_ticker]
             ticker_full = None
             stock_name = user_ticker
             for candidate in ticker_candidates:
@@ -62,9 +63,10 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
                 except: pass
             
             if not ticker_full:
-                st.error(f"找不到代號：{user_ticker}")
+                st.error(f"找不到符合條件的股票代號：{user_ticker}")
                 st.stop()
 
+        # 下載資料
         df = yf.download(ticker_full, period=f"{backtest_days}d", interval="1d", progress=False)
         if df.empty:
             st.error("無法取得歷史資料。")
@@ -82,18 +84,19 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
         df = pd.concat([df, macd], axis=1)
         m_line, m_hist, m_sig = macd.columns[0], macd.columns[1], macd.columns[2]
 
-        # MJ 策略核心
+        # 策略訊號 (MJ 共振)
         df['J_up_50'] = (df['J'] > 50) & (df['J'].shift(1) <= 50)
         df['MACD_Red'] = (df[m_hist] > 0) & (df[m_hist].shift(1) <= 0)
         df['Trend_OK'] = df[m_line] > 0
         df['J_down_50'] = (df['J'] < 50) & (df['J'].shift(1) >= 50)
         df['MACD_Green'] = (df[m_hist] < 0) & (df[m_hist].shift(1) >= 0)
 
+        # 共振判斷
         df['Buy_Signal'] = (df['Trend_OK']) & (df['J_up_50'].rolling(resonance_window).max() > 0) & (df['MACD_Red'].rolling(resonance_window).max() > 0)
         df['Sell_Signal'] = (df['J_down_50'].rolling(resonance_window).max() > 0) & (df['MACD_Green'].rolling(resonance_window).max() > 0)
         df = df.dropna()
 
-        # 回測邏輯
+        # 回測循環
         cap, pos, ent_p, ent_d = initial_capital, 0, 0.0, None
         hist, buys, sells, eq_curve = [], [], [], []
 
@@ -108,7 +111,7 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
             elif pos > 0 and r['Sell_Signal']:
                 rev = pos * px * (1 - 0.001425 - 0.003)
                 profit = rev - (pos * ent_p * 1.001425)
-                hist.append({'Buy_Date': ent_d, 'Sell_Date': d, 'Profit': profit, 'Return(%)': round((profit/(pos*ent_p*1.001425))*100, 2)})
+                hist.append({'Buy_Date': ent_d, 'Sell_Date': d, 'Buy_Price': ent_p, 'Sell_Price': px, 'Profit': profit, 'Return(%)': round((profit/(pos*ent_p*1.001425))*100, 2)})
                 cap += rev
                 sells.append({'Date': d, 'Price': px})
                 pos = 0
@@ -116,7 +119,14 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
         df['Equity'] = eq_curve
 
         # 報告呈現
-        st.header(f"📊 {ticker_full} {stock_name} - MJ 策略報告")
+        st.header(f"📊 {user_ticker} {stock_name} - MJ 策略報告")
+        tr = (df['Equity'].iloc[-1] - initial_capital) / initial_capital
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("初始資金", f"{initial_capital:,.0f} 元")
+        c2.metric("最終淨值", f"{df['Equity'].iloc[-1]:,.0f} 元", f"{tr * 100:.2f}%")
+        c3.metric("交易次數", len(hist))
+        c4.metric("勝率", f"{(sum(1 for t in hist if t['Profit'] > 0)/len(hist)*100 if hist else 0):.2f}%")
+
         if pos > 0:
             with st.expander("⚠️ 檢視目前持有未平倉部位 (截至回測最後一筆)", expanded=True):
                 unrealized = (df['Close'].iloc[-1] * pos * 0.995) - (ent_p * pos * 1.001425)
@@ -124,46 +134,79 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
                 st.metric("預估未實現損益", f"{unrealized:,.0f} 元", f"{(df['Close'].iloc[-1]-ent_p)/ent_p*100:.2f}%")
 
         # 視覺化圖表
-        fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.02, 
-                            row_heights=[0.3, 0.1, 0.15, 0.15, 0.15, 0.15],
-                            subplot_titles=("價格與訊號", "RSI (14)", "KDJ (9,3,3)", "MACD (12,26,9)", "MJ 共振觀測 (MACD柱 + J線對齊)", "總資金曲線"),
-                            specs=[[{"secondary_y": False}],[{"secondary_y": False}],[{"secondary_y": False}],[{"secondary_y": False}],[{"secondary_y": True}],[{"secondary_y": False}]])
-        
+        # fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.3, 0.1, 0.15, 0.15, 0.15, 0.15],
+        #                     subplot_titles=("價格與訊號", "RSI", "KDJ", "MACD", "MJ 共振觀測 (MACD柱 + J線)", "總資金曲線"))
+
+        fig = make_subplots(
+            rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.02, 
+            row_heights=[0.3, 0.1, 0.15, 0.15, 0.15, 0.15],
+            subplot_titles=("價格與訊號", "RSI", "KDJ", "MACD", "MJ 共振觀測 (MACD柱 + J線)", "總資金曲線"),
+            # 🌟 新增 specs 參數，指定第 5 個子圖 (row=5) 啟用雙 Y 軸
+            specs=[
+                [{"secondary_y": False}],
+                [{"secondary_y": False}],
+                [{"secondary_y": False}],
+                [{"secondary_y": False}],
+                [{"secondary_y": True}],  # <- 就是這裡
+                [{"secondary_y": False}]
+            ]
+        )
+
         x_str = df.index.strftime('%Y/%m/%d')
         
-        # 1. 價格
-        fig.add_trace(go.Scatter(x=x_str, y=df['Close'], name='收盤價', line=dict(color='#d1d5db')), row=1, col=1)
-        if buys: fig.add_trace(go.Scatter(x=[b['Date'].strftime('%Y/%m/%d') for b in buys], y=[b['Price'] for b in buys], mode='markers', name='買入點', marker=dict(symbol='triangle-up', size=12, color='#22c55e')), row=1, col=1)
-        if sells: fig.add_trace(go.Scatter(x=[s['Date'].strftime('%Y/%m/%d') for s in sells], y=[s['Price'] for s in sells], mode='markers', name='賣出點', marker=dict(symbol='triangle-down', size=12, color='#f97316')), row=1, col=1)
+        # 價格
+        fig.add_trace(go.Scatter(x=x_str, y=df['Close'], name='Close', line=dict(color='#d1d5db')), row=1, col=1)
+        if buys: fig.add_trace(go.Scatter(x=[b['Date'].strftime('%Y/%m/%d') for b in buys], y=[b['Price'] for b in buys], mode='markers', name='Buy', marker=dict(symbol='triangle-up', size=12, color='#22c55e')), row=1, col=1)
+        if sells: fig.add_trace(go.Scatter(x=[s['Date'].strftime('%Y/%m/%d') for s in sells], y=[s['Price'] for s in sells], mode='markers', name='Sell', marker=dict(symbol='triangle-down', size=12, color='#f97316')), row=1, col=1)
 
-        # 2. RSI / 3. KDJ
+        # 其他指標
         fig.add_trace(go.Scatter(x=x_str, y=df['RSI'], name='RSI', line=dict(color='#8b5cf6')), row=2, col=1)
-        fig.add_trace(go.Scatter(x=x_str, y=df[k_col], name='K線', line=dict(color='#f59e0b', width=1)), row=3, col=1)
-        fig.add_trace(go.Scatter(x=x_str, y=df[d_col], name='D線', line=dict(color='#0ea5e9', width=1)), row=3, col=1)
-        fig.add_trace(go.Scatter(x=x_str, y=df['J'], name='J線', line=dict(color='#ec4899', width=1.5)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=x_str, y=df[k_col], name='K', line=dict(color='#f59e0b', width=1)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=x_str, y=df[d_col], name='D', line=dict(color='#0ea5e9', width=1)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=x_str, y=df['J'], name='J', line=dict(color='#ec4899', width=1.5)), row=3, col=1)
         
-        # 4. MACD
-        fig.add_trace(go.Scatter(x=x_str, y=df[m_line], name='MACD快線', line=dict(color='#3b82f6')), row=4, col=1)
-        fig.add_trace(go.Scatter(x=x_str, y=df[m_sig], name='Signal慢線', line=dict(color='#f59e0b')), row=4, col=1)
-        fig.add_trace(go.Bar(x=x_str, y=df[m_hist], name='MACD柱狀體', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.5), row=4, col=1)
+        # MACD
+        fig.add_trace(go.Scatter(x=x_str, y=df[m_line], name='MACD', line=dict(color='#3b82f6')), row=4, col=1)
+        fig.add_trace(go.Scatter(x=x_str, y=df[m_sig], name='Signal', line=dict(color='#f59e0b')), row=4, col=1)
+        fig.add_trace(go.Bar(x=x_str, y=df[m_hist], name='MACD Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.5), row=4, col=1)
 
-        # 5. MJ 共振 (🌟 0 軸水平對齊)
+        # MJ 共振
         df['J_Shifted'] = df['J'] - 50
-        fig.add_trace(go.Bar(x=x_str, y=df[m_hist], name='共振柱狀圖', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), row=5, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=x_str, y=df['J_Shifted'], name='J線 (對齊0軸)', line=dict(color='#ec4899', width=2)), row=5, col=1, secondary_y=True)
-        
-        max_m = df[m_hist].abs().max() * 1.1
-        max_j = df['J_Shifted'].abs().max() * 1.1
-        fig.update_yaxes(range=[-max_m, max_m], row=5, col=1, secondary_y=False)
-        fig.update_yaxes(range=[-max_j, max_j], row=5, col=1, secondary_y=True)
-        fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1)
+        # fig.add_trace(go.Bar(x=x_str, y=df[m_hist], name='Resonance Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), row=5, col=1)
+        # fig.add_trace(go.Scatter(x=x_str, y=df['J_Shifted'], name='J-50', line=dict(color='#ec4899', width=2)), row=5, col=1)
+        # fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1)
+        # 柱狀體用左邊的 Y 軸 (secondary_y=False)
+        fig.add_trace(
+            go.Bar(x=x_str, y=df[m_hist], name='Resonance Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), 
+            row=5, col=1, secondary_y=False
+        )
+        # J 線用右邊的 Y 軸 (secondary_y=True)
+        fig.add_trace(
+            go.Scatter(x=x_str, y=df['J_Shifted'], name='J-50', line=dict(color='#ec4899', width=2)), 
+            row=5, col=1, secondary_y=True
+        )
+        # 0 軸輔助線畫在左邊或右邊都可以，我們畫在左邊
+        fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1, secondary_y=False)
+        # ==========================================
+        # 🌟 新增這段：強制將雙 Y 軸的 0 軸水平對齊
+        # ==========================================
+        # 1. 找出 MACD 柱狀體與 J 線的「最大絕對值」
+        max_macd = df[m_hist].abs().max()
+        max_j = df['J_Shifted'].abs().max()
+        # 2. 將 Y 軸範圍強制設定為 [ -最大值, +最大值 ] (乘上 1.1 留點天地空間)
+        fig.update_yaxes(range=[-max_macd * 1.1, max_macd * 1.1], row=5, col=1, secondary_y=False)
+        fig.update_yaxes(range=[-max_j * 1.1, max_j * 1.1], row=5, col=1, secondary_y=True)
 
-        # 6. 總資金
-        fig.add_trace(go.Scatter(x=x_str, y=df['Equity'], name='帳戶價值', fill='tozeroy', line=dict(color='#10b981')), row=6, col=1)
 
-        # 垂直買賣線貫穿
+        # 資金曲線
+        fig.add_trace(go.Scatter(x=x_str, y=df['Equity'], name='Equity', fill='tozeroy', line=dict(color='#10b981')), row=6, col=1)
+
+        # 垂直虛線貫穿
         for b in buys: fig.add_vline(x=b['Date'].strftime('%Y/%m/%d'), line_width=1, line_dash="dash", line_color="#22c55e", opacity=0.4)
         for s in sells: fig.add_vline(x=s['Date'].strftime('%Y/%m/%d'), line_width=1, line_dash="dash", line_color="#f97316", opacity=0.4)
+
+        # fig.update_layout(height=1300, hovermode="x unified", template="plotly_dark", showlegend=False)
+        # st.plotly_chart(fig, use_container_width=True)
 
         # 🌟 設定圖例 (Legend) 在上方水平排列
         fig.update_layout(
