@@ -80,7 +80,8 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
         k_col, d_col = stoch.columns[0], stoch.columns[1]
         df['J'] = 3 * df[k_col] - 2 * df[d_col]
 
-        macd = df.ta.macd(fast=12, slow=26, signal=9)
+        # macd = df.ta.macd(fast=12, slow=26, signal=9)
+        macd = df.ta.macd(fast=6, slow=13, signal=9)
         df = pd.concat([df, macd], axis=1)
         m_line, m_hist, m_sig = macd.columns[0], macd.columns[1], macd.columns[2]
 
