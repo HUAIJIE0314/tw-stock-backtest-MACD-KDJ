@@ -114,8 +114,24 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
                 st.metric("預估未實現損益", f"{unrealized:,.0f} 元", f"{(df['Close'].iloc[-1]-ent_p)/ent_p*100:.2f}%")
 
         # 視覺化圖表
-        fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.3, 0.1, 0.15, 0.15, 0.15, 0.15],
-                            subplot_titles=("價格與訊號", "RSI", "KDJ", "MACD", "MJ 共振觀測 (MACD柱 + J線)", "總資金曲線"))
+        # fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.3, 0.1, 0.15, 0.15, 0.15, 0.15],
+        #                     subplot_titles=("價格與訊號", "RSI", "KDJ", "MACD", "MJ 共振觀測 (MACD柱 + J線)", "總資金曲線"))
+
+        fig = make_subplots(
+            rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.02, 
+            row_heights=[0.3, 0.1, 0.15, 0.15, 0.15, 0.15],
+            subplot_titles=("價格與訊號", "RSI", "KDJ", "MACD", "MJ 共振觀測 (MACD柱 + J線)", "總資金曲線"),
+            # 🌟 新增 specs 參數，指定第 5 個子圖 (row=5) 啟用雙 Y 軸
+            specs=[
+                [{"secondary_y": False}],
+                [{"secondary_y": False}],
+                [{"secondary_y": False}],
+                [{"secondary_y": False}],
+                [{"secondary_y": True}],  # <- 就是這裡
+                [{"secondary_y": False}]
+            ]
+        )
+
         x_str = df.index.strftime('%Y/%m/%d')
         
         # 價格
@@ -136,9 +152,24 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
 
         # MJ 共振
         df['J_Shifted'] = df['J'] - 50
-        fig.add_trace(go.Bar(x=x_str, y=df[m_hist], name='Resonance Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), row=5, col=1)
-        fig.add_trace(go.Scatter(x=x_str, y=df['J_Shifted'], name='J-50', line=dict(color='#ec4899', width=2)), row=5, col=1)
-        fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1)
+        # fig.add_trace(go.Bar(x=x_str, y=df[m_hist], name='Resonance Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), row=5, col=1)
+        # fig.add_trace(go.Scatter(x=x_str, y=df['J_Shifted'], name='J-50', line=dict(color='#ec4899', width=2)), row=5, col=1)
+        # fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1)
+        # 柱狀體用左邊的 Y 軸 (secondary_y=False)
+        fig.add_trace(
+            go.Bar(x=x_str, y=df[m_hist], name='Resonance Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), 
+            row=5, col=1, secondary_y=False
+        )
+        
+        # J 線用右邊的 Y 軸 (secondary_y=True)
+        fig.add_trace(
+            go.Scatter(x=x_str, y=df['J_Shifted'], name='J-50', line=dict(color='#ec4899', width=2)), 
+            row=5, col=1, secondary_y=True
+        )
+        
+        # 0 軸輔助線畫在左邊或右邊都可以，我們畫在左邊
+        fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1, secondary_y=False)
+        
 
         # 資金曲線
         fig.add_trace(go.Scatter(x=x_str, y=df['Equity'], name='Equity', fill='tozeroy', line=dict(color='#10b981')), row=6, col=1)
