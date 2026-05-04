@@ -160,16 +160,23 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
             go.Bar(x=x_str, y=df[m_hist], name='Resonance Hist', marker_color=['#ef4444' if v>=0 else '#22c55e' for v in df[m_hist]], opacity=0.7), 
             row=5, col=1, secondary_y=False
         )
-        
         # J 線用右邊的 Y 軸 (secondary_y=True)
         fig.add_trace(
             go.Scatter(x=x_str, y=df['J_Shifted'], name='J-50', line=dict(color='#ec4899', width=2)), 
             row=5, col=1, secondary_y=True
         )
-        
         # 0 軸輔助線畫在左邊或右邊都可以，我們畫在左邊
         fig.add_hline(y=0, line_color="white", opacity=0.3, row=5, col=1, secondary_y=False)
-        
+        # ==========================================
+        # 🌟 新增這段：強制將雙 Y 軸的 0 軸水平對齊
+        # ==========================================
+        # 1. 找出 MACD 柱狀體與 J 線的「最大絕對值」
+        max_macd = df[m_hist].abs().max()
+        max_j = df['J_Shifted'].abs().max()
+        # 2. 將 Y 軸範圍強制設定為 [ -最大值, +最大值 ] (乘上 1.1 留點天地空間)
+        fig.update_yaxes(range=[-max_macd * 1.1, max_macd * 1.1], row=5, col=1, secondary_y=False)
+        fig.update_yaxes(range=[-max_j * 1.1, max_j * 1.1], row=5, col=1, secondary_y=True)
+
 
         # 資金曲線
         fig.add_trace(go.Scatter(x=x_str, y=df['Equity'], name='Equity', fill='tozeroy', line=dict(color='#10b981')), row=6, col=1)
