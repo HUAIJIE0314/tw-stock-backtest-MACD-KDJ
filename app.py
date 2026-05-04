@@ -90,11 +90,24 @@ if st.sidebar.button("🚀 執行 MJ 策略回測", use_container_width=True):
         df['MACD_Red'] = (df[m_hist] > 0) & (df[m_hist].shift(1) <= 0)
         df['Trend_OK'] = df[m_line] > 0
         df['J_down_50'] = (df['J'] < 50) & (df['J'].shift(1) >= 50)
-        df['MACD_Green'] = (df[m_hist] < 0) & (df[m_hist].shift(1) >= 0)
+        # df['MACD_Green'] = (df[m_hist] < 0) & (df[m_hist].shift(1) >= 0)
 
         # 共振判斷
-        df['Buy_Signal'] = (df['Trend_OK']) & (df['J_up_50'].rolling(resonance_window).max() > 0) & (df['MACD_Red'].rolling(resonance_window).max() > 0)
-        df['Sell_Signal'] = (df['J_down_50'].rolling(resonance_window).max() > 0) & (df['MACD_Green'].rolling(resonance_window).max() > 0)
+        # df['Buy_Signal'] = (df['Trend_OK']) & (df['J_up_50'].rolling(resonance_window).max() > 0) & (df['MACD_Red'].rolling(resonance_window).max() > 0)
+        # df['Sell_Signal'] = (df['J_down_50'].rolling(resonance_window).max() > 0) & (df['MACD_Green'].rolling(resonance_window).max() > 0)
+        df['Buy_Signal'] = (df['Trend_OK']) & \
+                           (df['J_up_50'].rolling(resonance_window).max() > 0) & \
+                           (df['MACD_Red'].rolling(resonance_window).max() > 0)
+
+
+        # [賣出條件]：J 線高檔死叉 (改為靈敏)
+        # 條件 1: J 跌破 D
+        df['J_Cross_Down_D'] = (df['J'] < df[d_col]) & (df['J'].shift(1) >= df[d_col].shift(1))
+        # 條件 2: 發生在 80 以上高檔 (昨天的 J 值在 80 以上)
+        df['J_High_Level'] = df['J'].shift(1) > 80
+        
+        df['Sell_Signal'] = df['J_Cross_Down_D'] & df['J_High_Level']
+
         df = df.dropna()
 
         # 回測循環
